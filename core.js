@@ -20,38 +20,29 @@
         }
     };
 
-    // 1. DİNANİK KAMERA KANCASI (ZOOM MEKANİZMASI)
-    function hookGameCamera() {
-        // Starblast / Three.js Kamera Mantığına Doğrudan Erişim
-        if (window.THREE && window.THREE.Camera) {
-            const originalUpdateProjectionMatrix = window.THREE.Camera.prototype.updateProjectionMatrix;
-            window.THREE.Camera.prototype.updateProjectionMatrix = function () {
-                if (this.isPerspectiveCamera || this.isOrthographicCamera) {
-                    if (window.jarvisConfig.zoom.enabled) {
-                        this.zoom = window.jarvisConfig.zoom.level;
-                    }
+    // 1. WEBGL / VIEWPORT SEVİYESİNDE DOĞRUDAN KAMERA KANCASI
+    function applyDirectZoom() {
+        // Starblast'ın ana render bağlamını yakala
+        if (!window.WebGLRenderingContext) return;
+
+        // WebGL Viewport Override
+        if (!window.__jarvis_viewport_hooked) {
+            window.__jarvis_viewport_hooked = true;
+            const originalViewport = WebGLRenderingContext.prototype.viewport;
+
+            WebGLRenderingContext.prototype.viewport = function (x, y, width, height) {
+                if (window.jarvisConfig.zoom.enabled && window.jarvisConfig.zoom.level !== 1.0) {
+                    const zoom = window.jarvisConfig.zoom.level;
+                    const newWidth = width * zoom;
+                    const newHeight = height * zoom;
+                    const offsetX = x - (newWidth - width) / 2;
+                    const offsetY = y - (newHeight - height) / 2;
+
+                    return originalViewport.call(this, offsetX, offsetY, newWidth, newHeight);
                 }
-                return originalUpdateProjectionMatrix.apply(this, arguments);
+                return originalViewport.call(this, x, y, width, height);
             };
         }
-
-        // Genel Obje Taraması (Game Engine Scope)
-        const canvases = document.querySelectorAll("canvas");
-        canvases.forEach(canvas => {
-            for (let prop in canvas) {
-                if (prop.startsWith("__reactFiber") || prop.startsWith("__reactProps") || prop.includes("three")) {
-                    try {
-                        let target = canvas[prop];
-                        if (target && target.camera) {
-                            target.camera.zoom = window.jarvisConfig.zoom.level;
-                            if (target.camera.updateProjectionMatrix) target.camera.updateProjectionMatrix();
-                        }
-                    } catch (e) {}
-                }
-            }
-        });
-
-        requestAnimationFrame(hookGameCamera);
     }
 
     // 2. ARAYÜZ (UI) OLUŞTURUCU
@@ -111,18 +102,17 @@
 
     // 3. GİRDİ YÖNETİCİSİ (INPUT MANAGER)
     function setupInputListeners() {
-        // Fare Tekerleği Kontrolü
         window.addEventListener("wheel", function (e) {
             if (!window.jarvisConfig.zoom.enabled) return;
 
             if (e.deltaY < 0) {
-                // İleri Çevirme -> Uzaklaş (Zoom Değeri Küçülür)
+                // İleri çevirince uzaklaşsın
                 window.jarvisConfig.zoom.level = Math.max(
                     window.jarvisConfig.zoom.min,
                     window.jarvisConfig.zoom.level - window.jarvisConfig.zoom.step
                 );
             } else {
-                // Geri Çekme -> Yakınlaş (Zoom Değeri Büyür)
+                // Geriye çekince yakınlaşsın
                 window.jarvisConfig.zoom.level = Math.min(
                     window.jarvisConfig.zoom.max,
                     window.jarvisConfig.zoom.level + window.jarvisConfig.zoom.step
@@ -135,7 +125,6 @@
             }
         }, { passive: true });
 
-        // Alt + A Kombinasyonu ile Menü Aç/Kapat
         window.addEventListener("keydown", function (e) {
             if (e.altKey && (e.key === 'a' || e.key === 'A' || e.code === 'KeyA')) {
                 e.preventDefault();
@@ -152,7 +141,7 @@
     function init() {
         createJarvisUI();
         setupInputListeners();
-        requestAnimationFrame(hookGameCamera);
+        applyDirectZoom();
     }
 
     if (document.readyState === "complete" || document.readyState === "interactive") {
