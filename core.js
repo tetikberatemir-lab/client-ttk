@@ -4,7 +4,7 @@
 
     console.log("[Jarvis System] Modüler Çekirdek Başlatılıyor...");
 
-    // 1. GLOBAL SİSTEM DURUMU
+    // Global Ayarlar
     window.jarvisConfig = {
         zoom: {
             level: 1.0,
@@ -20,29 +20,41 @@
         }
     };
 
-    // 2. KAMERA VE RENDER KANCASI (ZOOM MİMARİSİ)
-    function applyCameraZoom() {
-        // Three.js veya oyunun kamera matrisini bellekten tarayıp ezme
-        if (window.THREE && window.THREE.PerspectiveCamera) {
-            // Oyunun mevcut sahnelerindeki kameraları yakala
-            const canvases = document.querySelectorAll("canvas");
-            canvases.forEach(canvas => {
-                // Canvas üzerindeki Three.js veya özel render nesnesine müdahale
-                if (canvas.__webglContext || canvas) {
-                    // Kamera objesini global çalışma alanından yakalama simülasyonu
+    // 1. DİNANİK KAMERA KANCASI (ZOOM MEKANİZMASI)
+    function hookGameCamera() {
+        // Starblast / Three.js Kamera Mantığına Doğrudan Erişim
+        if (window.THREE && window.THREE.Camera) {
+            const originalUpdateProjectionMatrix = window.THREE.Camera.prototype.updateProjectionMatrix;
+            window.THREE.Camera.prototype.updateProjectionMatrix = function () {
+                if (this.isPerspectiveCamera || this.isOrthographicCamera) {
+                    if (window.jarvisConfig.zoom.enabled) {
+                        this.zoom = window.jarvisConfig.zoom.level;
+                    }
                 }
-            });
+                return originalUpdateProjectionMatrix.apply(this, arguments);
+            };
         }
 
-        // Oyunun genel scaler değişkenine kancalanma
-        if (window.game && window.game.scaler) {
-            window.game.scaler = window.jarvisConfig.zoom.level;
-        }
+        // Genel Obje Taraması (Game Engine Scope)
+        const canvases = document.querySelectorAll("canvas");
+        canvases.forEach(canvas => {
+            for (let prop in canvas) {
+                if (prop.startsWith("__reactFiber") || prop.startsWith("__reactProps") || prop.includes("three")) {
+                    try {
+                        let target = canvas[prop];
+                        if (target && target.camera) {
+                            target.camera.zoom = window.jarvisConfig.zoom.level;
+                            if (target.camera.updateProjectionMatrix) target.camera.updateProjectionMatrix();
+                        }
+                    } catch (e) {}
+                }
+            }
+        });
 
-        requestAnimationFrame(applyCameraZoom);
+        requestAnimationFrame(hookGameCamera);
     }
 
-    // 3. ARAYÜZ (UI) OLUŞTURUCU
+    // 2. ARAYÜZ (UI) OLUŞTURUCU
     function createJarvisUI() {
         if (document.getElementById("jarvis-menu-root")) return;
 
@@ -75,9 +87,8 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
-            cursor: move;
         `;
-        header.innerHTML = `<span>JARVIS SYSTEM v1.0</span><span id="jarvis-toggle-btn" style="cursor:pointer;">[—]</span>`;
+        header.innerHTML = `<span>JARVIS SYSTEM v1.0</span><span>[—]</span>`;
 
         const content = document.createElement("div");
         content.id = "jarvis-menu-content";
@@ -87,9 +98,9 @@
                 <label>Kamera Zoom: <span id="jarvis-zoom-val">1.00x</span></label>
             </div>
             <div style="font-size: 10px; color: #888;">
-                [Tekerlek İleri] Zoom Küçült (Uzaklaş)<br>
-                [Tekerlek Geri] Zoom Büyüt (Yakınlaş)<br>
-                [Alt + A] Menüyü Gizle / Göster
+                [Tekerlek İleri] Zoom Uzaklaştır<br>
+                [Tekerlek Geri] Zoom Yakınlaştır<br>
+                [Alt + A] Menü Gizle / Göster
             </div>
         `;
 
@@ -98,22 +109,20 @@
         document.body.appendChild(menuRoot);
     }
 
-    // 4. GİRDİ VE ETKİNLİK YÖNETİCİSİ (INPUT MANAGER)
+    // 3. GİRDİ YÖNETİCİSİ (INPUT MANAGER)
     function setupInputListeners() {
-        // İstenen Yönde Fare Tekerleği Kontrolü
+        // Fare Tekerleği Kontrolü
         window.addEventListener("wheel", function (e) {
             if (!window.jarvisConfig.zoom.enabled) return;
 
-            // e.deltaY < 0 -> İleri Çevirme
-            // e.deltaY > 0 -> Geriye Çekme
             if (e.deltaY < 0) {
-                // İleri çevirince uzaklaşsın (zoom değeri küçülsün)
+                // İleri Çevirme -> Uzaklaş (Zoom Değeri Küçülür)
                 window.jarvisConfig.zoom.level = Math.max(
                     window.jarvisConfig.zoom.min,
                     window.jarvisConfig.zoom.level - window.jarvisConfig.zoom.step
                 );
             } else {
-                // Geriye çekince yakınlaşsın (zoom değeri büyüsün)
+                // Geri Çekme -> Yakınlaş (Zoom Değeri Büyür)
                 window.jarvisConfig.zoom.level = Math.min(
                     window.jarvisConfig.zoom.max,
                     window.jarvisConfig.zoom.level + window.jarvisConfig.zoom.step
@@ -126,7 +135,7 @@
             }
         }, { passive: true });
 
-        // Alt + A Kısayolu ile Menü Aç/Kapat
+        // Alt + A Kombinasyonu ile Menü Aç/Kapat
         window.addEventListener("keydown", function (e) {
             if (e.altKey && (e.key === 'a' || e.key === 'A' || e.code === 'KeyA')) {
                 e.preventDefault();
@@ -139,11 +148,11 @@
         });
     }
 
-    // 5. BAŞLATICI
+    // Başlatıcı
     function init() {
         createJarvisUI();
         setupInputListeners();
-        requestAnimationFrame(applyCameraZoom);
+        requestAnimationFrame(hookGameCamera);
     }
 
     if (document.readyState === "complete" || document.readyState === "interactive") {
