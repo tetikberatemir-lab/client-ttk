@@ -1,9 +1,9 @@
-// core.js - Jarvis Experimental Client Core Framework v1.2
+// core.js - Jarvis Client Core Framework v1.3
 (function () {
     'use strict';
 
-    const CORE_VERSION = "v1.2";
-    console.log(`[Jarvis Core ${CORE_VERSION}] Teşhis Modu Aktif Yapı Başlatılıyor...`);
+    const CORE_VERSION = "v1.3";
+    console.log(`[Jarvis Core ${CORE_VERSION}] Kamera Merkezleme Düzeltmesi Aktif.`);
 
     window.jarvisConfig = {
         version: CORE_VERSION,
@@ -21,59 +21,43 @@
         }
     };
 
-    // 1. TEŞHİS & RAPORLAMA SİSTEMİ (F12 KONSOL RAPORU)
-    function logReport(category, message, details = null) {
-        const time = new Date().toLocaleTimeString();
-        console.log(`%c[JARVIS DIAGNOSTIC - ${time}] [${category}] %c${message}`, "color: #00ffcc; font-weight: bold;", "color: #ffffff;");
-        if (details) {
-            console.dir(details);
-        }
-    }
+    // 1. TAM EKRAN ORANTILI KAMERA HACK
+    function setupCameraHook() {
+        if (window.THREE && window.THREE.WebGLRenderer) {
+            if (!window.__jarvis_render_hooked) {
+                window.__jarvis_render_hooked = true;
 
-    // 2. GÜVENLİ KAMERA KANCASI
-    function initCameraHook() {
-        try {
-            if (window.THREE && window.THREE.OrthographicCamera) {
-                logReport("CAMERA", "Three.js OrthographicCamera nesnesi tespit edildi.");
-
-                if (!window.__jarvis_patched) {
-                    window.__jarvis_patched = true;
-                    
-                    // Orijinal kamerayı bozmadan sadece fov / zoom parametresi üzerinden deneme
-                    const originalUpdate = window.THREE.OrthographicCamera.prototype.updateProjectionMatrix;
-                    window.THREE.OrthographicCamera.prototype.updateProjectionMatrix = function () {
-                        try {
-                            if (window.jarvisConfig.zoom.enabled) {
-                                this.zoom = 1 / window.jarvisConfig.zoom.level;
+                // WebGL render döngüsüne doğrudan sızma
+                const originalRender = window.THREE.WebGLRenderer.prototype.render;
+                window.THREE.WebGLRenderer.prototype.render = function (scene, camera) {
+                    if (camera && window.jarvisConfig.zoom.enabled) {
+                        // Merkez ekseni kaydırmadan zoom uygula
+                        if (camera.zoom !== undefined) {
+                            const targetZoom = 1 / window.jarvisConfig.zoom.level;
+                            if (Math.abs(camera.zoom - targetZoom) > 0.001) {
+                                camera.zoom = targetZoom;
+                                camera.updateProjectionMatrix();
                             }
-                        } catch (err) {
-                            logReport("ERROR", "Projection matrix güncellenirken hata oluştu:", err);
                         }
-                        return originalUpdate.apply(this, arguments);
-                    };
-                    logReport("SUCCESS", "Kamera enjeksiyonu başarıyla tamamlandı.");
-                }
-            } else {
-                logReport("WARN", "window.THREE henüz globalde yok, yeniden taranıyor...");
+                    }
+                    return originalRender.apply(this, arguments);
+                };
+                console.log("[Jarvis System] WebGL Render kancası başarıyla bağlandı.");
             }
-        } catch (e) {
-            logReport("FATAL_ERROR", "Kamera kancalama işleminde beklenmeyen hata:", e);
         }
     }
 
-    // 3. ARAYÜZ (SOL ÜST PANEL)
+    // 2. ARAYÜZ (SOL ÜST PANEL)
     function createJarvisUI() {
         if (document.getElementById("jarvis-menu-root")) return;
 
         const menuRoot = document.createElement("div");
         menuRoot.id = "jarvis-menu-root";
-        
-        // Menü konumu: SOL ÜST
         menuRoot.style.cssText = `
             position: fixed;
-            top: 20px;
-            left: 20px;
-            width: 280px;
+            top: 15px;
+            left: 15px;
+            width: 260px;
             background: ${window.jarvisConfig.ui.backgroundColor};
             border: 1px solid ${window.jarvisConfig.ui.themeColor};
             border-radius: 8px;
@@ -97,7 +81,7 @@
             justify-content: space-between;
             align-items: center;
         `;
-        header.innerHTML = `<span>JARVIS SYSTEM [${CORE_VERSION}]</span><span style="color:#00ffcc;">● DIAGNOSTIC</span>`;
+        header.innerHTML = `<span>JARVIS SYSTEM [${CORE_VERSION}]</span><span style="color:#00ffcc;">● READY</span>`;
 
         const content = document.createElement("div");
         content.id = "jarvis-menu-content";
@@ -117,10 +101,9 @@
         menuRoot.appendChild(header);
         menuRoot.appendChild(content);
         document.body.appendChild(menuRoot);
-        logReport("UI", "Sol üst arayüz paneli oluşturuldu.");
     }
 
-    // 4. GİRDİ YÖNETİCİSİ
+    // 3. GİRDİ YÖNETİCİSİ
     function setupInputListeners() {
         window.addEventListener("wheel", function (e) {
             if (!window.jarvisConfig.zoom.enabled) return;
@@ -141,7 +124,6 @@
             if (zoomValElem) {
                 zoomValElem.innerText = window.jarvisConfig.zoom.level.toFixed(2) + "x";
             }
-            logReport("INPUT", `Zoom Seviyesi Değişti: ${window.jarvisConfig.zoom.level.toFixed(2)}x`);
         }, { passive: true });
 
         window.addEventListener("keydown", function (e) {
@@ -151,16 +133,14 @@
                 if (menu) {
                     window.jarvisConfig.ui.visible = !window.jarvisConfig.ui.visible;
                     menu.style.display = window.jarvisConfig.ui.visible ? "block" : "none";
-                    logReport("UI", `Panel görünürlüğü: ${window.jarvisConfig.ui.visible}`);
                 }
             }
         });
     }
 
-    // Döngüsel Kontrol
     function mainLoop() {
-        initCameraHook();
-        setTimeout(mainLoop, 1000);
+        setupCameraHook();
+        requestAnimationFrame(mainLoop);
     }
 
     function init() {
